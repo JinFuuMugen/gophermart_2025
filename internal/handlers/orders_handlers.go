@@ -11,8 +11,27 @@ import (
 )
 
 type OrderHandler struct {
-	DB        *storage.Database
-	JWTSecret []byte
+	DB *storage.Database
+}
+
+func isValidLuhn(num string) bool {
+	var sum int
+	alt := false
+	for i := len(num) - 1; i >= 0; i-- {
+		d := int(num[i] - '0')
+		if d < 0 || d > 9 {
+			return false
+		}
+		if alt {
+			d *= 2
+			if d > 9 {
+				d -= 9
+			}
+		}
+		sum += d
+		alt = !alt
+	}
+	return sum%10 == 0
 }
 
 func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
@@ -35,21 +54,19 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, c := range orderNum {
-		if c < '0' || c > '9' {
-			http.Error(w, "invalid order number format", http.StatusUnprocessableEntity)
-			return
-		}
+	if !isValidLuhn(orderNum) {
+		http.Error(w, "invalid order number", http.StatusUnprocessableEntity)
+		return
 	}
 
-	statusCode, err := h.DB.CheckOrderOwner(orderNum, login)
+	code, err := h.DB.CheckOrderOwner(orderNum, login)
 	if err != nil {
 		logger.Errorf("error checking order: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	switch statusCode {
+	switch code {
 	case 200:
 		w.WriteHeader(http.StatusOK)
 	case 409:
@@ -62,7 +79,7 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusAccepted)
 	default:
-		http.Error(w, "unexpected status", http.StatusInternalServerError)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 	}
 }
 
@@ -75,6 +92,7 @@ func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {
 
 	orders, err := h.DB.GetOrders(login)
 	if err != nil {
+		logger.Errorf("error getting orders: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
