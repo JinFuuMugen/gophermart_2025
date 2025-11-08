@@ -2,14 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/JinFuuMugen/gophermart-ya/internal/logger"
 	"github.com/JinFuuMugen/gophermart-ya/internal/storage"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 type OrderHandler struct {
@@ -17,35 +15,9 @@ type OrderHandler struct {
 	JWTSecret []byte
 }
 
-func (h *OrderHandler) extractLoginFromToken(tokenString string) (string, error) {
-	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("invalid signing method")
-		}
-		return h.JWTSecret, nil
-	})
-	if err != nil || !token.Valid {
-		return "", fmt.Errorf("invalid token")
-	}
-
-	if claims, ok := token.Claims.(jwt.MapClaims); ok {
-		if user, ok := claims["user"].(string); ok {
-			return user, nil
-		}
-	}
-
-	return "", fmt.Errorf("no user in token")
-}
-
 func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("auth_token")
-	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	login, err := h.extractLoginFromToken(cookie.Value)
-	if err != nil {
+	login, ok := r.Context().Value("userLogin").(string)
+	if !ok || login == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -63,7 +35,6 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Заказ должен состоять только из цифр
 	for _, c := range orderNum {
 		if c < '0' || c > '9' {
 			http.Error(w, "invalid order number format", http.StatusUnprocessableEntity)
@@ -71,7 +42,6 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Проверяем существование заказа
 	statusCode, err := h.DB.CheckOrderOwner(orderNum, login)
 	if err != nil {
 		logger.Errorf("error checking order: %v", err)
@@ -97,21 +67,14 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("auth_token")
-	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	login, err := h.extractLoginFromToken(cookie.Value)
-	if err != nil {
+	login, ok := r.Context().Value("userLogin").(string)
+	if !ok || login == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	orders, err := h.DB.GetOrders(login)
 	if err != nil {
-		logger.Errorf("error getting orders: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
