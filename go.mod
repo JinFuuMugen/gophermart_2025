@@ -1,6 +1,6 @@
 module github.com/JinFuuMugen/gophermart-ya
 
-go 1.25.4
+go 1.24.10
 
 require (
 	github.com/go-chi/chi v1.5.5
