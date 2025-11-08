@@ -25,6 +25,10 @@ func InitRouter(db *storage.Database, jwtSecret []byte) *chi.Mux {
 		DB: db,
 	}
 
+	balanceHandler := &handlers.BalanceHandler{
+		DB: db,
+	}
+
 	rout.Route("/api/user", func(r chi.Router) {
 		r.Post("/register", userHandler.RegisterHandler)
 		r.Post("/login", userHandler.LoginHandler)
@@ -34,9 +38,9 @@ func InitRouter(db *storage.Database, jwtSecret []byte) *chi.Mux {
 
 			protected.Post("/orders", orderHandler.UploadOrder)
 			protected.Get("/orders", orderHandler.GetOrders)
-			// protected.Get("/balance", handlers.GetUserBalanceHandler)     // TODO
-			// protected.Post("/balance/withdraw", handlers.WithdrawHandler) // TODO
-			// protected.Get("/withdrawals", handlers.GetWithdrawalsHandler) // TODO
+			protected.Get("/balance", balanceHandler.GetBalance)
+			protected.Post("/balance/withdraw", balanceHandler.Withdraw)
+			protected.Get("/withdrawals", balanceHandler.GetWithdrawals)
 		})
 	})
 
