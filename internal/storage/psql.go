@@ -114,19 +114,23 @@ func (db *Database) CheckOrderOwner(orderNum, login string) (int, error) {
 	var existingLogin string
 	err := db.conn.QueryRow(`SELECT login FROM orders WHERE number = $1`, orderNum).Scan(&existingLogin)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 202, nil // Новый заказ
+		return 202, nil
 	}
 	if err != nil {
 		return 0, fmt.Errorf("cannot check order: %w", err)
 	}
 	if existingLogin == login {
-		return 200, nil // Заказ уже этого пользователя
+		return 200, nil
 	}
-	return 409, nil // Заказ принадлежит другому пользователю
+	return 409, nil
 }
 
 func (db *Database) StoreOrder(orderNum, login string) error {
-	_, err := db.conn.Exec(`INSERT INTO orders (number, login) VALUES ($1, $2)`, orderNum, login)
+	_, err := db.conn.Exec(`
+		INSERT INTO orders (number, login)
+		VALUES ($1, $2)
+		ON CONFLICT (number) DO NOTHING
+	`, orderNum, login)
 	if err != nil {
 		return fmt.Errorf("cannot insert order: %w", err)
 	}
@@ -160,6 +164,52 @@ func (db *Database) GetOrders(login string) ([]models.Order, error) {
 	return orders, rows.Err()
 }
 
+func (db *Database) GetPendingOrders() ([]models.Order, error) {
+	rows, err := db.conn.Query(`SELECT number FROM orders WHERE status IN ('NEW','PROCESSING')`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orders []models.Order
+	for rows.Next() {
+		var o models.Order
+		rows.Scan(&o.Number)
+		orders = append(orders, o)
+	}
+	return orders, rows.Err()
+}
+
+func (db *Database) UpdateOrderAndBalance(number, status string, accrual float64) error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("cannot begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var login string
+	if err := tx.QueryRow(`SELECT login FROM orders WHERE number = $1`, number).Scan(&login); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("cannot get order login: %w", err)
+	}
+
+	_, err = tx.Exec(`UPDATE orders SET status=$1, accrual=$2 WHERE number=$3`, status, accrual, number)
+	if err != nil {
+		return fmt.Errorf("cannot update order: %w", err)
+	}
+
+	if status == "PROCESSED" && accrual > 0 {
+		_, err = tx.Exec(`UPDATE users SET current_balance = current_balance + $1 WHERE login = $2`, accrual, login)
+		if err != nil {
+			return fmt.Errorf("cannot update balance: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
 //
 // Balance
 //
@@ -184,6 +234,7 @@ func (db *Database) Withdraw(login, order string, sum float64) error {
 	if err := tx.QueryRow(`SELECT current_balance FROM users WHERE login = $1`, login).Scan(&current); err != nil {
 		return fmt.Errorf("cannot get balance: %w", err)
 	}
+
 	if current < sum {
 		return fmt.Errorf("insufficient funds")
 	}

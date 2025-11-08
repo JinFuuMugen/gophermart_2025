@@ -1,8 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -11,6 +12,19 @@ import (
 	"github.com/JinFuuMugen/gophermart-ya/internal/storage"
 	"github.com/golang-jwt/jwt/v5"
 )
+
+type ctxKey string
+
+const userLoginKey ctxKey = "userLogin"
+
+func contextWithUser(ctx context.Context, login string) context.Context {
+	return context.WithValue(ctx, userLoginKey, login)
+}
+
+func userFromContext(ctx context.Context) (string, bool) {
+	login, ok := ctx.Value(userLoginKey).(string)
+	return login, ok
+}
 
 type UserHandler struct {
 	DB        *storage.Database
@@ -123,18 +137,14 @@ func (h *UserHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("auth_token")
-		if errors.Is(err, http.ErrNoCookie) {
+		if err != nil || cookie.Value == "" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if err != nil {
-			http.Error(w, "invalid cookie", http.StatusUnauthorized)
 			return
 		}
 
 		token, err := jwt.Parse(cookie.Value, func(t *jwt.Token) (interface{}, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, errors.New("invalid signing method")
+				return nil, fmt.Errorf("invalid signing method")
 			}
 			return h.JWTSecret, nil
 		})
@@ -143,6 +153,19 @@ func (h *UserHandler) AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		login, _ := claims["user"].(string)
+		if login == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		ctx := contextWithUser(r.Context(), login)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
