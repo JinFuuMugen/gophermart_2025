@@ -84,6 +84,9 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("Content-Type", "application/json")
+
 	login, ok := r.Context().Value("userLogin").(string)
 	if !ok || login == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
