@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/JinFuuMugen/gophermart-ya/internal/logger"
 	"github.com/JinFuuMugen/gophermart-ya/internal/models"
@@ -15,7 +14,7 @@ type BalanceHandler struct {
 }
 
 func (h *BalanceHandler) GetBalance(w http.ResponseWriter, r *http.Request) {
-	login, ok := r.Context().Value("userLogin").(string)
+	login, ok := userFromContext(r.Context())
 	if !ok || login == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -39,7 +38,7 @@ func (h *BalanceHandler) GetBalance(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *BalanceHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
-	login, ok := r.Context().Value("userLogin").(string)
+	login, ok := userFromContext(r.Context())
 	if !ok || login == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -55,9 +54,14 @@ func (h *BalanceHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !isValidLuhn(req.Order) {
+		http.Error(w, "invalid order number", http.StatusUnprocessableEntity)
+		return
+	}
+
 	err := h.DB.Withdraw(login, req.Order, req.Sum)
 	if err != nil {
-		if strings.Contains(err.Error(), "insufficient funds") {
+		if err.Error() == "insufficient funds" {
 			http.Error(w, "insufficient funds", http.StatusPaymentRequired)
 			return
 		}
@@ -71,7 +75,7 @@ func (h *BalanceHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *BalanceHandler) GetWithdrawals(w http.ResponseWriter, r *http.Request) {
-	login, ok := r.Context().Value("userLogin").(string)
+	login, ok := userFromContext(r.Context())
 	if !ok || login == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return

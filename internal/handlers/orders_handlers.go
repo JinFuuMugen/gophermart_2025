@@ -35,7 +35,7 @@ func isValidLuhn(num string) bool {
 }
 
 func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
-	login, ok := r.Context().Value("userLogin").(string)
+	login, ok := userFromContext(r.Context())
 	if !ok || login == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -84,10 +84,7 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {
-
-	w.Header().Set("Content-Type", "application/json")
-
-	login, ok := r.Context().Value("userLogin").(string)
+	login, ok := userFromContext(r.Context())
 	if !ok || login == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -107,5 +104,5 @@ func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(orders)
+	_ = json.NewEncoder(w).Encode(orders)
 }

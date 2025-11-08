@@ -13,6 +13,19 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+type ctxKey string
+
+const userLoginKey ctxKey = "userLogin"
+
+func contextWithUser(ctx context.Context, login string) context.Context {
+	return context.WithValue(ctx, userLoginKey, login)
+}
+
+func userFromContext(ctx context.Context) (string, bool) {
+	login, ok := ctx.Value(userLoginKey).(string)
+	return login, ok
+}
+
 type UserHandler struct {
 	DB        *storage.Database
 	JWTSecret []byte
@@ -120,6 +133,7 @@ func (h *UserHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 }
+
 func (h *UserHandler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("auth_token")
@@ -151,7 +165,7 @@ func (h *UserHandler) AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), "userLogin", login)
+		ctx := contextWithUser(r.Context(), login)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
