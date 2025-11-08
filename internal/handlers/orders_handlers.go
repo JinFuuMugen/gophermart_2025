@@ -2,48 +2,50 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/JinFuuMugen/gophermart-ya/internal/logger"
 	"github.com/JinFuuMugen/gophermart-ya/internal/storage"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type OrderHandler struct {
-	DB *storage.Database
+	DB        *storage.Database
+	JWTSecret []byte
 }
 
-func isValidLuhn(number string) bool {
-	var sum int
-	var alt bool
-
-	for i := len(number) - 1; i >= 0; i-- {
-		n := int(number[i] - '0')
-		if n < 0 || n > 9 {
-			return false
+func (h *OrderHandler) extractLoginFromToken(tokenString string) (string, error) {
+	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("invalid signing method")
 		}
-		if alt {
-			n *= 2
-			if n > 9 {
-				n -= 9
-			}
-		}
-		sum += n
-		alt = !alt
+		return h.JWTSecret, nil
+	})
+	if err != nil || !token.Valid {
+		return "", fmt.Errorf("invalid token")
 	}
-	return sum%10 == 0
+
+	if claims, ok := token.Claims.(jwt.MapClaims); ok {
+		if user, ok := claims["user"].(string); ok {
+			return user, nil
+		}
+	}
+
+	return "", fmt.Errorf("no user in token")
 }
 
 func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
-	loginCookie, err := r.Cookie("auth_token")
+	cookie, err := r.Cookie("auth_token")
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	login := extractLoginFromToken(loginCookie.Value)
-	if login == "" {
+	login, err := h.extractLoginFromToken(cookie.Value)
+	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -61,12 +63,15 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем алгоритмом Луна
-	if !isValidLuhn(orderNum) {
-		http.Error(w, "invalid order number", http.StatusUnprocessableEntity)
-		return
+	// Заказ должен состоять только из цифр
+	for _, c := range orderNum {
+		if c < '0' || c > '9' {
+			http.Error(w, "invalid order number format", http.StatusUnprocessableEntity)
+			return
+		}
 	}
 
+	// Проверяем существование заказа
 	statusCode, err := h.DB.CheckOrderOwner(orderNum, login)
 	if err != nil {
 		logger.Errorf("error checking order: %v", err)
@@ -77,10 +82,8 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 	switch statusCode {
 	case 200:
 		w.WriteHeader(http.StatusOK)
-		return
 	case 409:
 		http.Error(w, "order belongs to another user", http.StatusConflict)
-		return
 	case 202:
 		if err := h.DB.StoreOrder(orderNum, login); err != nil {
 			logger.Errorf("error storing order: %v", err)
@@ -88,21 +91,20 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
-		return
 	default:
 		http.Error(w, "unexpected status", http.StatusInternalServerError)
 	}
 }
 
 func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {
-	loginCookie, err := r.Cookie("auth_token")
+	cookie, err := r.Cookie("auth_token")
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	login := extractLoginFromToken(loginCookie.Value)
-	if login == "" {
+	login, err := h.extractLoginFromToken(cookie.Value)
+	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -114,15 +116,12 @@ func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+
 	if len(orders) == 0 {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(orders)
-}
-
-func extractLoginFromToken(token string) string {
-	return token // TODO:claims["user"]
 }
