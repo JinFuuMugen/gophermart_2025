@@ -21,6 +21,10 @@ func InitRouter(db *storage.Database, jwtSecret []byte) *chi.Mux {
 		JWTSecret: jwtSecret,
 	}
 
+	orderHandler := &handlers.OrderHandler{
+		DB: db,
+	}
+
 	rout.Route("/api/user", func(r chi.Router) {
 		r.Post("/register", userHandler.RegisterHandler)
 		r.Post("/login", userHandler.LoginHandler)
@@ -28,8 +32,8 @@ func InitRouter(db *storage.Database, jwtSecret []byte) *chi.Mux {
 		r.Group(func(protected chi.Router) {
 			protected.Use(userHandler.AuthMiddleware)
 
-			// protected.Post("/orders", handlers.UserOrdersHandler)         // TODO: реализовать позже
-			// protected.Get("/orders", handlers.GetUserOrdersHandler)       // TODO
+			protected.Post("/orders", orderHandler.UploadOrder)
+			protected.Get("/orders", orderHandler.GetOrders)
 			// protected.Get("/balance", handlers.GetUserBalanceHandler)     // TODO
 			// protected.Post("/balance/withdraw", handlers.WithdrawHandler) // TODO
 			// protected.Get("/withdrawals", handlers.GetWithdrawalsHandler) // TODO
