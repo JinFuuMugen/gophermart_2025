@@ -208,7 +208,7 @@ func (db *Database) UpdateOrderAndBalance(number, status string, accrual float64
 		return fmt.Errorf("cannot update order: %w", err)
 	}
 
-	if status == "PROCESSED" && accrual > 0 {
+	if status == string(models.OrderStatusProcessed) && accrual > 0 {
 		_, err = tx.Exec(`UPDATE users SET current_balance = current_balance + $1 WHERE login = $2`, accrual, login)
 		if err != nil {
 			return fmt.Errorf("cannot update balance: %w", err)
