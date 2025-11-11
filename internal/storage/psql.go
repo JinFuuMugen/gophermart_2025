@@ -30,6 +30,10 @@ func New(dsn string) (*Database, error) {
 		return nil, fmt.Errorf("cannot connect to database: %w", err)
 	}
 
+	return &Database{conn: db}, nil
+}
+
+func (db *Database) Migrate() error {
 	schema := []string{
 		`CREATE TABLE IF NOT EXISTS users (
 			login TEXT PRIMARY KEY,
@@ -52,13 +56,17 @@ func New(dsn string) (*Database, error) {
 			processed_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	for _, query := range schema {
-		if _, err := db.ExecContext(ctx, query); err != nil {
-			return nil, fmt.Errorf("cannot init schema: %w", err)
+		if _, err := db.conn.ExecContext(ctx, query); err != nil {
+			return fmt.Errorf("cannot init schema: %w", err)
 		}
 	}
 
-	return &Database{conn: db}, nil
+	return nil
 }
 
 //

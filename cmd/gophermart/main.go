@@ -28,7 +28,11 @@ func main() {
 		logger.Fatalf("cannot init database: %v", err)
 	}
 
-	jwtSecret := []byte("supersecretjwt")
+	if err := db.Migrate(); err != nil {
+		logger.Fatalf("cannot migrate database: %v", err)
+	}
+
+	jwtSecret := []byte("supersecretjwt") //TODO: change??
 	router := api.InitRouter(db, jwtSecret)
 
 	go accrual.Worker(db, cfg.AccrualSystemAddress, 3*time.Second)
