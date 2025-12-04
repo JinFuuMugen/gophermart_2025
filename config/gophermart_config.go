@@ -24,15 +24,15 @@ func LoadGophermartConfig() (*GophermartConfig, error) {
 	flag.StringVar(&cfg.RunAddress, "a", cfg.RunAddress, "gophermart address")
 	flag.Parse()
 
-	if envAccrualSystemAddress := os.Getenv("ACCRUAL_SYSTEM_ADDRESS"); envAccrualSystemAddress != "" {
+	if envAccrualSystemAddress, ok := os.LookupEnv("ACCRUAL_SYSTEM_ADDRESS"); ok {
 		cfg.AccrualSystemAddress = envAccrualSystemAddress
 	}
 
-	if envDatabaseURI := os.Getenv("DATABASE_URI"); envDatabaseURI != "" {
+	if envDatabaseURI, ok := os.LookupEnv("DATABASE_URI"); ok {
 		cfg.DatabaseURI = envDatabaseURI
 	}
 
-	if envRunAddress := os.Getenv("RUN_ADDRESS"); envRunAddress != "" {
+	if envRunAddress, ok := os.LookupEnv("RUN_ADDRESS"); ok {
 		cfg.RunAddress = envRunAddress
 	}
 

@@ -10,8 +10,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/JinFuuMugen/gophermart-ya/internal/models"
+	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+const migrationsPath = "file://migrations"
 
 type Database struct {
 	conn *sql.DB
@@ -33,37 +36,23 @@ func New(dsn string) (*Database, error) {
 	return &Database{conn: db}, nil
 }
 
-func (db *Database) Migrate() error {
-	schema := []string{
-		`CREATE TABLE IF NOT EXISTS users (
-			login TEXT PRIMARY KEY,
-			password_hash TEXT NOT NULL,
-			current_balance NUMERIC(12,2) DEFAULT 0 NOT NULL,
-			withdrawn NUMERIC(12,2) DEFAULT 0 NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS orders (
-			number TEXT PRIMARY KEY,
-			login TEXT NOT NULL REFERENCES users(login),
-			status TEXT NOT NULL DEFAULT 'NEW',
-			accrual NUMERIC(12,2) DEFAULT 0,
-			uploaded_at TIMESTAMP NOT NULL DEFAULT NOW()
-		)`,
-		`CREATE TABLE IF NOT EXISTS withdrawals (
-			id SERIAL PRIMARY KEY,
-			login TEXT NOT NULL REFERENCES users(login),
-			order_number TEXT NOT NULL,
-			sum NUMERIC(12,2) NOT NULL,
-			processed_at TIMESTAMP NOT NULL DEFAULT NOW()
-		)`,
+func RunMigrations(dsn string) error {
+
+	m, err := migrate.New(
+		migrationsPath,
+		dsn,
+	)
+
+	if err != nil {
+		return fmt.Errorf("cannot create migrate instance: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	for _, query := range schema {
-		if _, err := db.conn.ExecContext(ctx, query); err != nil {
-			return fmt.Errorf("cannot init schema: %w", err)
+	err = m.Up()
+	if err != nil {
+		if err == migrate.ErrNoChange {
+			return nil
 		}
+		return fmt.Errorf("cannot apply migrations: %w", err)
 	}
 
 	return nil
@@ -238,23 +227,31 @@ func (db *Database) Withdraw(login, order string, sum float64) error {
 	}
 	defer tx.Rollback()
 
-	var current float64
-	if err := tx.QueryRow(`SELECT current_balance FROM users WHERE login = $1`, login).Scan(&current); err != nil {
-		return fmt.Errorf("cannot get balance: %w", err)
+	res, err := tx.Exec(`
+		UPDATE users
+		SET current_balance = current_balance - $1,
+		    withdrawn       = withdrawn + $1
+		WHERE login = $2 AND current_balance >= $1
+	`, sum, login)
+	if err != nil {
+		return fmt.Errorf("cannot update balance: %w", err)
 	}
 
-	if current < sum {
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("cannot get affected rows: %w", err)
+	}
+
+	if rows == 0 {
 		return fmt.Errorf("insufficient funds")
 	}
 
-	_, err = tx.Exec(`INSERT INTO withdrawals (login, order_number, sum) VALUES ($1, $2, $3)`, login, order, sum)
+	_, err = tx.Exec(`
+		INSERT INTO withdrawals (login, order_number, sum)
+		VALUES ($1, $2, $3)
+	`, login, order, sum)
 	if err != nil {
 		return fmt.Errorf("cannot insert withdrawal: %w", err)
-	}
-
-	_, err = tx.Exec(`UPDATE users SET current_balance = current_balance - $1, withdrawn = withdrawn + $1 WHERE login = $2`, sum, login)
-	if err != nil {
-		return fmt.Errorf("cannot update balance: %w", err)
 	}
 
 	return tx.Commit()

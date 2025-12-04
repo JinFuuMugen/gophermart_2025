@@ -28,7 +28,7 @@ func main() {
 		logger.Fatalf("cannot init database: %v", err)
 	}
 
-	if err := db.Migrate(); err != nil {
+	if err := storage.RunMigrations(cfg.DatabaseURI); err != nil {
 		logger.Fatalf("cannot migrate database: %v", err)
 	}
 
