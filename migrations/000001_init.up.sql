@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS users (
+	login TEXT PRIMARY KEY,
+	password_hash TEXT NOT NULL,
+	current_balance NUMERIC(12,2) DEFAULT 0 NOT NULL,
+	withdrawn NUMERIC(12,2) DEFAULT 0 NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+	number TEXT PRIMARY KEY,
+	login TEXT NOT NULL REFERENCES users(login),
+	status TEXT NOT NULL DEFAULT 'NEW',
+	accrual NUMERIC(12,2) DEFAULT 0,
+	uploaded_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS withdrawals (
+	id SERIAL PRIMARY KEY,
+	login TEXT NOT NULL REFERENCES users(login),
+	order_number TEXT NOT NULL,
+	sum NUMERIC(12,2) NOT NULL,
+	processed_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
