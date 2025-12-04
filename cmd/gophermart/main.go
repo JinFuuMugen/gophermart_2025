@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/JinFuuMugen/gophermart-ya/config"
@@ -32,14 +36,34 @@ func main() {
 		logger.Fatalf("cannot migrate database: %v", err)
 	}
 
-	jwtSecret := []byte("supersecretjwt") //TODO: change??
+	jwtSecret := []byte("supersecretjwt")
 	router := api.InitRouter(db, jwtSecret)
 
-	go accrual.Worker(db, cfg.AccrualSystemAddress, 3*time.Second)
+	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	logger.Infof("server starting at %s", cfg.RunAddress)
+	go accrual.Worker(rootCtx, db, cfg.AccrualSystemAddress, 3*time.Second)
 
-	if err := http.ListenAndServe(cfg.RunAddress, router); err != nil {
-		logger.Fatalf("cannot start server: %v", err)
+	server := &http.Server{
+		Addr:    cfg.RunAddress,
+		Handler: router,
 	}
+
+	go func() {
+		logger.Infof("server starting at %s", cfg.RunAddress)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatalf("cannot start server: %v", err)
+		}
+	}()
+
+	<-rootCtx.Done()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Errorf("server shutdown error: %v", err)
+	}
+
+	logger.Infof("server stopped gracefully")
 }
